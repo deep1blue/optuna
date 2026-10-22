@@ -119,6 +119,10 @@ def test_group_decomposed_search_space() -> None:
     # No trial.
     assert search_space.calculate(study).search_spaces == []
 
+    # Waiting trial.
+    study.enqueue_trial({"x": 5}, {"x": IntDistribution(low=0, high=10)})
+    assert search_space.calculate(study).search_spaces == []
+
     # A single parameter.
     study.optimize(lambda t: t.suggest_int("x", 0, 10), n_trials=1)
     assert search_space.calculate(study).search_spaces == [{"x": IntDistribution(low=0, high=10)}]

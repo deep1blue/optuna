@@ -39,6 +39,7 @@ class _SearchSpaceGroup:
 
 class _GroupDecomposedSearchSpace:
     def __init__(self, include_pruned: bool = False) -> None:
+        self._cached_trial_number: int = -1
         self._search_space = _SearchSpaceGroup()
         self._study_id: int | None = None
         self._include_pruned = include_pruned
@@ -56,13 +57,41 @@ class _GroupDecomposedSearchSpace:
 
         states_of_interest: tuple[TrialState, ...]
         if self._include_pruned:
-            states_of_interest = (TrialState.COMPLETE, TrialState.PRUNED)
+            states_of_interest = (
+                TrialState.COMPLETE,
+                TrialState.PRUNED,
+                TrialState.WAITING,
+                TrialState.RUNNING,
+            )
         else:
-            states_of_interest = (TrialState.COMPLETE,)
+            states_of_interest = (
+                TrialState.COMPLETE,
+                TrialState.WAITING,
+                TrialState.RUNNING,
+            )
 
-        for trial in study._get_trials(
-            deepcopy=False, states=states_of_interest, use_cache=use_cache
-        ):
+        trials = study._get_trials(deepcopy=False, states=None, use_cache=use_cache)
+
+        next_cached_trial_number = -1
+        trials_to_add = []
+        for trial in reversed(trials):
+            if trial.state not in states_of_interest:
+                continue
+
+            if next_cached_trial_number == -1:
+                next_cached_trial_number = trial.number + 1
+
+            if self._cached_trial_number > trial.number:
+                break
+
+            if not trial.state.is_finished():
+                next_cached_trial_number = trial.number
+                continue
+
+            trials_to_add.append(trial)
+
+        for trial in reversed(trials_to_add):
             self._search_space.add_distributions(trial.distributions)
 
+        self._cached_trial_number = next_cached_trial_number
         return copy.deepcopy(self._search_space)
