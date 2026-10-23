@@ -18,6 +18,7 @@ from optuna.trial import FrozenTrial
 from optuna.trial import Trial
 from optuna.visualization import plot_pareto_front
 import optuna.visualization._pareto_front
+from optuna.visualization._pareto_front import _get_non_pareto_front_trials
 from optuna.visualization._pareto_front import _get_pareto_front_info
 from optuna.visualization._pareto_front import _ParetoFrontInfo
 from optuna.visualization._utils import COLOR_SCALE
@@ -354,3 +355,18 @@ def test_color_map(direction: Literal["minimize", "maximize"]) -> None:
     marker = plot_pareto_front(study).data[0]["marker"]
     assert COLOR_SCALE == [v[1] for v in marker["colorscale"]]
     assert "reversecale" not in marker
+
+
+def test_get_non_pareto_front_trials() -> None:
+    study = create_study(directions=["minimize", "minimize"])
+    for i in range(5):
+        study.add_trial(
+            create_trial(
+                values=[float(i), float(4 - i)],
+                params={"x": float(i)},
+                distributions={"x": FloatDistribution(0.0, 5.0)},
+            )
+        )
+    trials = study.get_trials(deepcopy=False)
+    pareto_trials = [trials[0], trials[2], trials[4]]
+    assert _get_non_pareto_front_trials(trials, pareto_trials) == [trials[1], trials[3]]
