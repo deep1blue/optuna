@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import bisect
 from typing import Any
 from typing import TYPE_CHECKING
 
@@ -129,30 +130,26 @@ def _select_parents(
     dominates: Callable[[FrozenTrial, FrozenTrial, Sequence[StudyDirection]], bool],
 ) -> list[FrozenTrial]:
     parents: list[FrozenTrial] = []
-    for _ in range(crossover.n_parents):
-        parent = _select_parent(
-            study, [t for t in parent_population if t not in parents], rng, dominates
-        )
-        parents.append(parent)
+    selected_indices: list[int] = []
+    population_size = len(parent_population)
+    directions = study.directions
+    for i in range(crossover.n_parents):
+        remaining_size = population_size - i
+        idx0 = int(rng.choice(remaining_size))
+        idx1 = int(rng.choice(remaining_size))
+        for s in selected_indices:
+            if s <= idx0:
+                idx0 += 1
+            if s <= idx1:
+                idx1 += 1
+        candidate0 = parent_population[idx0]
+        candidate1 = parent_population[idx1]
+        # TODO(ohta): Consider crowding distance.
+        selected_idx = idx0 if dominates(candidate0, candidate1, directions) else idx1
+        parents.append(parent_population[selected_idx])
+        bisect.insort(selected_indices, selected_idx)
 
     return parents
-
-
-def _select_parent(
-    study: Study,
-    parent_population: Sequence[FrozenTrial],
-    rng: np.random.RandomState,
-    dominates: Callable[[FrozenTrial, FrozenTrial, Sequence[StudyDirection]], bool],
-) -> FrozenTrial:
-    population_size = len(parent_population)
-    candidate0 = parent_population[rng.choice(population_size)]
-    candidate1 = parent_population[rng.choice(population_size)]
-
-    # TODO(ohta): Consider crowding distance.
-    if dominates(candidate0, candidate1, study.directions):
-        return candidate0
-    else:
-        return candidate1
 
 
 def _is_contained(params: dict[str, Any], search_space: dict[str, BaseDistribution]) -> bool:

@@ -36,6 +36,7 @@ from optuna.samplers.nsgaii._child_generation_strategy import NSGAIIChildGenerat
 from optuna.samplers.nsgaii._constraints_evaluation import _constrained_dominates
 from optuna.samplers.nsgaii._constraints_evaluation import _validate_constraints
 from optuna.samplers.nsgaii._crossover import _inlined_categorical_uniform_crossover
+from optuna.samplers.nsgaii._crossover import _select_parents
 from optuna.samplers.nsgaii._elite_population_selection_strategy import _calc_crowding_distance
 from optuna.samplers.nsgaii._elite_population_selection_strategy import _crowding_distance_sort
 from optuna.samplers.nsgaii._elite_population_selection_strategy import _rank_population
@@ -1122,3 +1123,41 @@ def test_crossover_deterministic(
     rng.normal = Mock(side_effect=_normal)
     child_params = crossover.crossover(parent_params, rng, study, numerical_transform.bounds)
     np.testing.assert_almost_equal(child_params, expected_params)
+
+
+@pytest.mark.parametrize(
+    "crossover",
+    [
+        UniformCrossover(),
+        SPXCrossover(),
+        UNDXCrossover(),
+    ],
+)
+def test_select_parents_matches_without_population_copy(crossover: BaseCrossover) -> None:
+    study = optuna.study.create_study(directions=["minimize", "minimize"])
+    parent_population = [
+        _create_frozen_trial(number=i, values=[float(i % 5), float((7 - i) % 5)])
+        for i in range(10)
+    ]
+
+    for seed in range(20):
+        rng_actual = np.random.RandomState(seed)
+        actual_parents = _select_parents(
+            crossover, study, parent_population, rng_actual, _dominates
+        )
+
+        rng_expected = np.random.RandomState(seed)
+        expected_parents: list[FrozenTrial] = []
+        for _ in range(crossover.n_parents):
+            remaining = [t for t in parent_population if t not in expected_parents]
+            candidate0 = remaining[rng_expected.choice(len(remaining))]
+            candidate1 = remaining[rng_expected.choice(len(remaining))]
+            parent = (
+                candidate0
+                if _dominates(candidate0, candidate1, study.directions)
+                else candidate1
+            )
+            expected_parents.append(parent)
+
+        assert actual_parents == expected_parents
+        assert len({t.number for t in actual_parents}) == crossover.n_parents
