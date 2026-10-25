@@ -259,3 +259,22 @@ def test_hyperband_pruner_and_brute_force_sampler() -> None:
 
     trials = study.trials
     assert len(trials) == 9
+
+
+def test_hyperband_bracket_id_cache_avoids_repeated_crc32() -> None:
+    pruner = optuna.pruners.HyperbandPruner(
+        min_resource=MIN_RESOURCE, max_resource=MAX_RESOURCE, reduction_factor=REDUCTION_FACTOR
+    )
+    study = optuna.create_study(pruner=pruner)
+
+    with mock.patch("optuna.pruners._hyperband.binascii.crc32", wraps=optuna.pruners._hyperband.binascii.crc32) as crc_mock:
+        def objective(trial: optuna.trial.Trial) -> float:
+            for i in range(N_REPORTS):
+                trial.report(float(i), step=i)
+                if trial.should_prune():
+                    raise optuna.TrialPruned()
+            return 1.0
+
+        study.optimize(objective, n_trials=6)
+        assert crc_mock.call_count == 6
+

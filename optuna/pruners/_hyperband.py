@@ -160,6 +160,7 @@ class HyperbandPruner(BasePruner):
         self._total_trial_allocation_budget = 0
         self._trial_allocation_budgets: list[int] = []
         self._n_brackets: int | None = None
+        self._bracket_id_cache: dict[tuple[str, int], int] = {}
 
         if not isinstance(self._max_resource, int) and self._max_resource != "auto":
             raise ValueError(
@@ -251,6 +252,11 @@ class HyperbandPruner(BasePruner):
         if len(self._pruners) == 0:
             return 0
 
+        cache_key = (study.study_name, trial.number)
+        cached_bracket_id = self._bracket_id_cache.get(cache_key)
+        if cached_bracket_id is not None:
+            return cached_bracket_id
+
         assert self._n_brackets is not None
         n = (
             binascii.crc32(f"{study.study_name}_{trial.number}".encode())
@@ -259,6 +265,7 @@ class HyperbandPruner(BasePruner):
         for bracket_id in range(self._n_brackets):
             n -= self._trial_allocation_budgets[bracket_id]
             if n < 0:
+                self._bracket_id_cache[cache_key] = bracket_id
                 return bracket_id
 
         assert False, "This line should be unreachable."
