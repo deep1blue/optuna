@@ -263,7 +263,6 @@ def _is_trial_promotable_to_next_rung(
         # smallest one among the competing values.
         promotable_idx = 0
 
-    competing_values.sort()
     if study_direction == StudyDirection.MAXIMIZE:
-        return value >= competing_values[-(promotable_idx + 1)]
-    return value <= competing_values[promotable_idx]
+        return sum(1 for v in competing_values if v > value) <= promotable_idx
+    return sum(1 for v in competing_values if v < value) <= promotable_idx

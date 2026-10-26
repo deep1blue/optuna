@@ -279,3 +279,35 @@ def test_successive_halving_pruner_bootstrap_parameter() -> None:
 
     trial2.report(1, step=1)
     assert not trial2.should_prune()
+
+
+@pytest.mark.parametrize(
+    "direction",
+    [optuna.study.StudyDirection.MINIMIZE, optuna.study.StudyDirection.MAXIMIZE],
+)
+@pytest.mark.parametrize("reduction_factor", [2, 3, 4])
+def test_is_trial_promotable_to_next_rung(
+    direction: optuna.study.StudyDirection, reduction_factor: int
+) -> None:
+    from optuna.pruners._successive_halving import _is_trial_promotable_to_next_rung
+
+    for values in [
+        [1.0],
+        [2.0, 1.0],
+        [3.0, 1.0, 2.0, 1.0, 4.0, 2.0, 0.5],
+        [5.0, 5.0, 5.0, 5.0],
+    ]:
+        sorted_vals = sorted(values)
+        idx = max((len(values) // reduction_factor) - 1, 0)
+        for v in values:
+            expected = (
+                v >= sorted_vals[-(idx + 1)]
+                if direction == optuna.study.StudyDirection.MAXIMIZE
+                else v <= sorted_vals[idx]
+            )
+            competing = list(values)
+            assert (
+                _is_trial_promotable_to_next_rung(v, competing, reduction_factor, direction)
+                == expected
+            )
+            assert competing == values
