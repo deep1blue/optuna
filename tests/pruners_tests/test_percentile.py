@@ -52,6 +52,37 @@ def test_percentile_pruner_interval_steps() -> None:
         optuna.pruners.PercentilePruner(25.0, interval_steps=0)
 
 
+@pytest.mark.parametrize(
+    "step,steps,n_warmup_steps,interval_steps,expected",
+    [
+        # Single reported step at warmup boundary is always first in interval.
+        (0, [0], 0, 1, True),
+        (5, [5], 5, 10, True),
+        # Monotonic steps within the same interval short-circuit to False after the first step.
+        (10, [0, 1, 2, 10], 0, 10, True),
+        (11, [0, 1, 2, 10, 11], 0, 10, False),
+        (19, [0, 10, 15, 19], 0, 10, False),
+        # Unsorted intermediate_steps still check all elements when needed.
+        (15, [0, 15, 12, 3], 0, 10, False),
+        (15, [15, 8, 2, 9], 0, 10, True),
+    ],
+)
+def test_is_first_in_interval_step(
+    step: int,
+    steps: list[int],
+    n_warmup_steps: int,
+    interval_steps: int,
+    expected: bool,
+) -> None:
+    intermediate_values = dict.fromkeys(steps, 0.0)
+    assert (
+        _percentile._is_first_in_interval_step(
+            step, intermediate_values.keys(), n_warmup_steps, interval_steps
+        )
+        is expected
+    )
+
+
 def test_percentile_pruner_with_one_trial() -> None:
     pruner = optuna.pruners.PercentilePruner(25.0, 0, 0)
     study = optuna.study.create_study(pruner=pruner)

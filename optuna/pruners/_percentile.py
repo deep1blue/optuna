@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 import math
 from typing import TYPE_CHECKING
 
@@ -67,13 +66,7 @@ def _is_first_in_interval_step(
     assert nearest_lower_pruning_step >= 0
 
     # `intermediate_steps` may not be sorted so we must go through all elements.
-    second_last_step = functools.reduce(
-        lambda second_last_step, s: s if s > second_last_step and s != step else second_last_step,
-        intermediate_steps,
-        -1,
-    )
-
-    return second_last_step < nearest_lower_pruning_step
+    return all(s < nearest_lower_pruning_step or s == step for s in reversed(intermediate_steps))
 
 
 class PercentilePruner(BasePruner):
