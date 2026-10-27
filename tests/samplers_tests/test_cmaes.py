@@ -346,6 +346,21 @@ def _create_trials() -> list[FrozenTrial]:
             trial_id=0,
         )
     )
+    trials.append(
+        FrozenTrial(
+            number=2,
+            value=None,
+            state=optuna.trial.TrialState.PRUNED,
+            user_attrs={},
+            system_attrs={},
+            params={},
+            distributions={},
+            intermediate_values={0: 1.0, 1: float("nan")},
+            datetime_start=None,
+            datetime_complete=None,
+            trial_id=0,
+        )
+    )
     return trials
 
 
@@ -581,3 +596,70 @@ def test_1d_search_space_with_margin(with_margin: bool) -> None:
     sampler = optuna.samplers.CmaEsSampler(with_margin=with_margin)
     study = optuna.create_study(sampler=sampler)
     study.optimize(objective, n_trials=2)
+
+
+@pytest.mark.filterwarnings("ignore::optuna.exceptions.ExperimentalWarning")
+@pytest.mark.parametrize("direction", ["minimize", "maximize"])
+def test_warm_starting_cmaes_with_pruned_trials(direction: str) -> None:
+    distributions = {
+        "x": optuna.distributions.FloatDistribution(-10, 10),
+        "y": optuna.distributions.FloatDistribution(-10, 10),
+    }
+    source_trials = [
+        create_trial(
+            params={"x": float(i - 8), "y": float(i - 8)},
+            distributions=distributions,
+            value=float(i**2),
+            state=TrialState.COMPLETE,
+        )
+        for i in range(1, 16)
+    ]
+    # Pruned trial with a valid intermediate value and value=None.
+    source_trials.append(
+        create_trial(
+            params={"x": 0.5, "y": -0.5},
+            distributions=distributions,
+            value=None,
+            intermediate_values={0: 0.5},
+            state=TrialState.PRUNED,
+        )
+    )
+    # Pruned trial without intermediate values (pruned before trial.report).
+    source_trials.append(
+        create_trial(
+            params={"x": 2.0, "y": 2.0},
+            distributions=distributions,
+            value=None,
+            intermediate_values={},
+            state=TrialState.PRUNED,
+        )
+    )
+    # Pruned trial whose final intermediate value is NaN.
+    source_trials.append(
+        create_trial(
+            params={"x": 3.0, "y": 3.0},
+            distributions=distributions,
+            value=None,
+            intermediate_values={0: 1.0, 1: float("nan")},
+            state=TrialState.PRUNED,
+        )
+    )
+
+    with patch("optuna.samplers._cmaes.cmaes.get_warm_start_mgd") as mock_func_ws:
+        mock_func_ws.return_value = (np.zeros(2), 0.1, np.eye(2))
+        sampler = optuna.samplers.CmaEsSampler(
+            seed=1,
+            n_startup_trials=1,
+            consider_pruned_trials=True,
+            source_trials=source_trials,
+        )
+        study = optuna.create_study(sampler=sampler, direction=direction)
+        study.optimize(
+            lambda t: t.suggest_float("x", -10, 10) + t.suggest_float("y", -10, 10),
+            n_trials=2,
+        )
+        assert mock_func_ws.call_count == 1
+        solutions_arg = mock_func_ws.call_args[0][0]
+        # 15 complete trials + 1 valid pruned trial (the empty and NaN pruned trials are skipped).
+        assert len(solutions_arg) == 16
+        assert all(np.isfinite(sol[1]) for sol in solutions_arg)

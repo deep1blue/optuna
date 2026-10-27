@@ -4,7 +4,6 @@ import copy
 import math
 import pickle
 from typing import Any
-from typing import cast
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -527,18 +526,25 @@ class CmaEsSampler(BaseSampler):
 
             cov = None
         else:
-            expected_states = [TrialState.COMPLETE]
-            if self._consider_pruned_trials:
-                expected_states.append(TrialState.PRUNED)
-
-            # TODO(c-bata): Filter parameters by their values instead of checking search space.
+            source_solutions = []
             sign = 1 if direction == StudyDirection.MINIMIZE else -1
-            source_solutions = [
-                (trans.transform(t.params), sign * cast("float", t.value))
-                for t in self._source_trials
-                if t.state in expected_states
-                and _is_compatible_search_space(trans, t.distributions)
-            ]
+            for t in self._source_trials:
+                if not _is_compatible_search_space(trans, t.distributions):
+                    continue
+                if t.state == TrialState.COMPLETE:
+                    value = t.value
+                elif t.state == TrialState.PRUNED and self._consider_pruned_trials:
+                    if len(t.intermediate_values) > 0:
+                        _, value = max(t.intermediate_values.items())
+                    else:
+                        value = t.value
+                else:
+                    continue
+
+                if value is None or math.isnan(value):
+                    continue
+
+                source_solutions.append((trans.transform(t.params), sign * value))
             if len(source_solutions) == 0:
                 raise ValueError("No compatible source_trials")
 
@@ -642,7 +648,7 @@ class CmaEsSampler(BaseSampler):
                 and self._consider_pruned_trials
             ):
                 _, value = max(t.intermediate_values.items())
-                if value is None:
+                if value is None or math.isnan(value):
                     continue
                 # We rewrite the value of the trial `t` for sampling, so we need a deepcopy.
                 copied_t = copy.deepcopy(t)
