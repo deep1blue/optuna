@@ -105,3 +105,30 @@ def test_get_param_importances_unnormalized_experimental() -> None:
     study = _get_study(seed=0, n_trials=3, is_multi_obj=False)
     with pytest.warns(ExperimentalWarning):
         get_param_importances(study, normalize=False)
+
+
+def test_get_distributions_avoids_redundant_get_trials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from optuna.importance._base import _get_distributions
+    from optuna.importance._base import _get_filtered_trials
+
+    study = _get_study(seed=0, n_trials=4, is_multi_obj=False)
+    orig_get_trials = study.get_trials
+    calls: list[tuple[bool, Any]] = []
+
+    def tracked_get_trials(
+        deepcopy: bool = True, states: Any = None
+    ) -> Any:
+        calls.append((deepcopy, states))
+        return orig_get_trials(deepcopy=deepcopy, states=states)
+
+    monkeypatch.setattr(study, "get_trials", tracked_get_trials)
+    distributions = _get_distributions(study, params=None)
+    assert len(calls) == 1
+    assert calls[0][0] is False
+    assert set(distributions.keys()) == {"x1", "x2", "x3"}
+
+    filtered = _get_filtered_trials(study, params=distributions.keys(), target=None)
+    assert len(filtered) == 4
+

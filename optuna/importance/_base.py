@@ -74,26 +74,26 @@ def _get_distributions(study: Study, params: list[str] | None) -> dict[str, Base
     _check_evaluate_args(completed_trials, params)
 
     if params is None:
-        return intersection_search_space(study.get_trials(deepcopy=False))
+        return intersection_search_space(completed_trials)
 
     # New temporary required to pass mypy. Seems like a bug.
     params_not_none = params
     assert params_not_none is not None
+    params_set = set(params_not_none)
 
     # Compute the search space based on the subset of trials containing all parameters.
     distributions = None
     for trial in completed_trials:
         trial_distributions = trial.distributions
-        if not all(name in trial_distributions for name in params_not_none):
+        if not (params_set <= trial_distributions.keys()):
             continue
 
         if distributions is None:
-            distributions = dict(
-                filter(
-                    lambda name_and_distribution: name_and_distribution[0] in params_not_none,
-                    trial_distributions.items(),
-                )
-            )
+            distributions = {
+                name: distribution
+                for name, distribution in trial_distributions.items()
+                if name in params_set
+            }
             continue
 
         if any(
@@ -125,12 +125,8 @@ def _check_evaluate_args(completed_trials: list[FrozenTrial], params: list[str] 
             )
 
         if len(params) > 0:
-            at_least_one_trial = False
-            for trial in completed_trials:
-                if all(p in trial.distributions for p in params):
-                    at_least_one_trial = True
-                    break
-            if not at_least_one_trial:
+            params_set = set(params)
+            if not any(params_set <= trial.distributions.keys() for trial in completed_trials):
                 raise ValueError(
                     "Study must contain completed trials with all specified parameters. "
                     f"Specified parameters: {params}."
@@ -141,10 +137,11 @@ def _get_filtered_trials(
     study: Study, params: Collection[str], target: Callable[[FrozenTrial], float] | None
 ) -> list[FrozenTrial]:
     trials = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
+    params_set = set(params)
     return [
         trial
         for trial in trials
-        if set(params) <= set(trial.params)
+        if params_set <= trial.params.keys()
         and np.isfinite(
             target(trial) if target is not None else cast("float", trial.value)
         )  # TC006
