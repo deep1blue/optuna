@@ -62,6 +62,51 @@ def test_percentile_pruner_with_one_trial() -> None:
     assert not trial.should_prune()
 
 
+def test_percentile_pruner_skips_get_trials_before_pruning_step() -> None:
+    from unittest.mock import patch
+
+    pruner = optuna.pruners.PercentilePruner(
+        50.0, n_startup_trials=1, n_warmup_steps=2, interval_steps=3
+    )
+    study = optuna.study.create_study(pruner=pruner)
+
+    first_trial = study.ask()
+    for s in range(5):
+        first_trial.report(2.0, step=s)
+    first_trial.report(1.0, step=5)
+    study.tell(first_trial, 1.0)
+
+    trial = study.ask()
+    with patch.object(study, "get_trials", wraps=study.get_trials) as mock_get_trials:
+        # No intermediate values reported yet (step is None).
+        assert not trial.should_prune()
+        assert mock_get_trials.call_count == 0
+
+        # Warmup steps (steps 0 and 1 < n_warmup_steps=2).
+        trial.report(1.5, step=0)
+        assert not trial.should_prune()
+        trial.report(1.5, step=1)
+        assert not trial.should_prune()
+        assert mock_get_trials.call_count == 0
+
+        # First pruning interval step (step=2): best_intermediate_result=1.5 <= 2.0.
+        trial.report(1.5, step=2)
+        assert not trial.should_prune()
+        assert mock_get_trials.call_count == 1
+
+        # Non-interval steps in the same interval [2, 5): steps 3 and 4.
+        trial.report(1.5, step=3)
+        assert not trial.should_prune()
+        trial.report(1.5, step=4)
+        assert not trial.should_prune()
+        assert mock_get_trials.call_count == 1
+
+        # Next interval boundary (step=5): best_intermediate_result=1.5 > 1.0.
+        trial.report(1.5, step=5)
+        assert trial.should_prune()
+        assert mock_get_trials.call_count == 2
+
+
 @pytest.mark.parametrize(
     "direction_value", [("minimize", [1, 2, 3, 4, 5], 2.1), ("maximize", [1, 2, 3, 4, 5], 3.9)]
 )

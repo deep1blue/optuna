@@ -180,15 +180,6 @@ class PercentilePruner(BasePruner):
         self._n_min_trials = n_min_trials
 
     def prune(self, study: "optuna.study.Study", trial: "optuna.trial.FrozenTrial") -> bool:
-        completed_trials = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
-        n_trials = len(completed_trials)
-
-        if n_trials == 0:
-            return False
-
-        if n_trials < self._n_startup_trials:
-            return False
-
         step = trial.last_step
         if step is None:
             return False
@@ -200,6 +191,15 @@ class PercentilePruner(BasePruner):
         if not _is_first_in_interval_step(
             step, trial.intermediate_values.keys(), n_warmup_steps, self._interval_steps
         ):
+            return False
+
+        completed_trials = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
+        n_trials = len(completed_trials)
+
+        if n_trials == 0:
+            return False
+
+        if n_trials < self._n_startup_trials:
             return False
 
         direction = study.direction
