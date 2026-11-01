@@ -133,7 +133,7 @@ def _get_edf_info(
             study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,)), target=target
         )
 
-        values = np.array([target(trial) for trial in trials])
+        values = np.sort([target(trial) for trial in trials])
         if len(values) == 0:
             continue
         all_values.append(values)
@@ -143,13 +143,13 @@ def _get_edf_info(
         _logger.warning("There are no complete trials.")
         return _EDFInfo(lines=[], x_values=np.array([]))
 
-    min_x_value = np.min(np.concatenate(all_values))
-    max_x_value = np.max(np.concatenate(all_values))
+    min_x_value = min(values[0] for values in all_values)
+    max_x_value = max(values[-1] for values in all_values)
     x_values = np.linspace(min_x_value, max_x_value, NUM_SAMPLES_X_AXIS)
 
     edf_line_info_list = []
     for study_name, values in zip(study_names, all_values):
-        y_values = np.sum(values[:, np.newaxis] <= x_values, axis=0) / values.size
+        y_values = np.searchsorted(values, x_values, side="right") / values.size
         edf_line_info_list.append(_EDFLineInfo(study_name=study_name, y_values=y_values))
 
     return _EDFInfo(lines=edf_line_info_list, x_values=x_values)
