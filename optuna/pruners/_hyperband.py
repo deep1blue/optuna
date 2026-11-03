@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import binascii
+import bisect
+import itertools
 import math
 from typing import TYPE_CHECKING
 
@@ -9,6 +11,7 @@ import optuna
 
 if TYPE_CHECKING:
     from collections.abc import Container
+    from collections.abc import Iterable
 from optuna import logging
 from optuna.pruners._base import BasePruner
 from optuna.pruners._successive_halving import SuccessiveHalvingPruner
@@ -248,20 +251,29 @@ class HyperbandPruner(BasePruner):
         `Hyperband paper <http://www.jmlr.org/papers/volume18/16-558/16-558.pdf>`__.
         """
 
+        return self._get_bracket_ids(study.study_name, [trial.number])[0]
+
+    def _get_bracket_ids(self, study_name: str, trial_numbers: Iterable[int]) -> list[int]:
+        """Compute the bracket indices for the trials of ``trial_numbers`` in a batch.
+
+        The cumulative budgets and the study name hash are computed only once, which keeps
+        the cost per trial low when filtering all the trials of a study.
+        """
+
         if len(self._pruners) == 0:
-            return 0
+            return [0 for _ in trial_numbers]
 
-        assert self._n_brackets is not None
-        n = (
-            binascii.crc32(f"{study.study_name}_{trial.number}".encode())
-            % self._total_trial_allocation_budget
-        )
-        for bracket_id in range(self._n_brackets):
-            n -= self._trial_allocation_budgets[bracket_id]
-            if n < 0:
-                return bracket_id
-
-        assert False, "This line should be unreachable."
+        cumulative_budgets = list(itertools.accumulate(self._trial_allocation_budgets))
+        total_budget = self._total_trial_allocation_budget
+        # `crc32` of a concatenation can be computed by continuing from the crc of the prefix.
+        prefix_crc = binascii.crc32(f"{study_name}_".encode())
+        bracket_ids = [
+            bisect.bisect_right(
+                cumulative_budgets, binascii.crc32(str(number).encode(), prefix_crc) % total_budget
+            )
+            for number in trial_numbers
+        ]
+        return bracket_ids
 
     def _create_bracket_study(
         self, study: "optuna.study.Study", bracket_id: int
@@ -310,7 +322,16 @@ class HyperbandPruner(BasePruner):
                 trials = super()._get_trials(deepcopy=deepcopy, states=states)
                 pruner = self.pruner
                 assert isinstance(pruner, HyperbandPruner)
-                return [t for t in trials if pruner._get_bracket_id(self, t) == self._bracket_id]
+                bracket_id = self._bracket_id
+                if (
+                    "_get_bracket_id" not in pruner.__dict__
+                    and type(pruner)._get_bracket_id is _DEFAULT_GET_BRACKET_ID
+                ):
+                    bracket_ids = pruner._get_bracket_ids(
+                        self.study_name, [t.number for t in trials]
+                    )
+                    return [t for t, i in zip(trials, bracket_ids) if i == bracket_id]
+                return [t for t in trials if pruner._get_bracket_id(self, t) == bracket_id]
 
             def stop(self) -> None:
                 # `stop` should stop the original study's optimization loop instead of
@@ -324,3 +345,6 @@ class HyperbandPruner(BasePruner):
                     return object.__getattribute__(self, attr_name)
 
         return _BracketStudy(study, self, bracket_id)
+
+
+_DEFAULT_GET_BRACKET_ID = HyperbandPruner._get_bracket_id

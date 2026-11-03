@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import binascii
 from collections.abc import Callable
 from unittest import mock
 
@@ -259,3 +260,98 @@ def test_hyperband_pruner_and_brute_force_sampler() -> None:
 
     trials = study.trials
     assert len(trials) == 9
+
+
+def _reference_bracket_id(
+    pruner: optuna.pruners.HyperbandPruner, study_name: str, number: int
+) -> int:
+    n = binascii.crc32(f"{study_name}_{number}".encode()) % pruner._total_trial_allocation_budget
+    for bracket_id, budget in enumerate(pruner._trial_allocation_budgets):
+        n -= budget
+        if n < 0:
+            return bracket_id
+    assert False
+
+
+@pytest.mark.parametrize(
+    "min_resource,max_resource,reduction_factor",
+    [(1, 16, 2), (1, 81, 3), (2, 100, 4), (1, 5, 3), (1, 1, 3), (3, 1000, 5)],
+)
+@pytest.mark.parametrize("study_name", ["study", "a_b_c", "\u30c6\u30b9\u30c8", ""])
+def test_get_bracket_ids_matches_reference(
+    min_resource: int, max_resource: int, reduction_factor: int, study_name: str
+) -> None:
+    pruner = optuna.pruners.HyperbandPruner(
+        min_resource=min_resource, max_resource=max_resource, reduction_factor=reduction_factor
+    )
+    study = optuna.create_study(study_name=study_name or None, pruner=pruner)
+    pruner._try_initialization(study)
+    assert len(pruner._pruners) > 0
+
+    numbers = list(range(2000)) + [10**6, 2**31, 2**40]
+    bracket_ids = pruner._get_bracket_ids(study.study_name, numbers)
+
+    assert len(bracket_ids) == len(numbers)
+    assert bracket_ids == [_reference_bracket_id(pruner, study.study_name, n) for n in numbers]
+    assert set(bracket_ids) <= set(range(len(pruner._pruners)))
+
+
+def test_get_bracket_ids_before_initialization() -> None:
+    pruner = optuna.pruners.HyperbandPruner(min_resource=1, max_resource=16)
+    assert pruner._get_bracket_ids("study", [0, 1, 2]) == [0, 0, 0]
+    assert pruner._get_bracket_ids("study", []) == []
+    assert pruner._get_bracket_ids("study", iter([5, 6])) == [0, 0]
+
+
+def test_get_bracket_id_consistent_with_get_bracket_ids() -> None:
+    pruner = optuna.pruners.HyperbandPruner(
+        min_resource=MIN_RESOURCE, max_resource=MAX_RESOURCE, reduction_factor=REDUCTION_FACTOR
+    )
+    study = optuna.create_study(sampler=optuna.samplers.RandomSampler(), pruner=pruner)
+    study.add_trials([optuna.trial.create_trial(value=0.0) for _ in range(50)])
+    pruner._try_initialization(study)
+
+    trials = study.get_trials(deepcopy=False)
+    assert [pruner._get_bracket_id(study, t) for t in trials] == pruner._get_bracket_ids(
+        study.study_name, [t.number for t in trials]
+    )
+
+
+def test_bracket_study_get_trials_partitions_trials() -> None:
+    pruner = optuna.pruners.HyperbandPruner(
+        min_resource=MIN_RESOURCE, max_resource=MAX_RESOURCE, reduction_factor=REDUCTION_FACTOR
+    )
+    study = optuna.create_study(sampler=optuna.samplers.RandomSampler(), pruner=pruner)
+    states = [
+        optuna.trial.TrialState.COMPLETE,
+        optuna.trial.TrialState.PRUNED,
+        optuna.trial.TrialState.FAIL,
+    ]
+    for i in range(120):
+        study.add_trial(
+            optuna.trial.create_trial(
+                state=states[i % 3], value=0.0 if states[i % 3] == states[0] else None
+            )
+        )
+    pruner._try_initialization(study)
+
+    collected: list[int] = []
+    for bracket_id in range(len(pruner._pruners)):
+        bracket_study = pruner._create_bracket_study(study, bracket_id)
+        for deepcopy in (True, False):
+            numbers = [t.number for t in bracket_study.get_trials(deepcopy=deepcopy)]
+            assert numbers == [
+                t.number
+                for t in study.get_trials(deepcopy=False)
+                if _reference_bracket_id(pruner, study.study_name, t.number) == bracket_id
+            ]
+        collected += [t.number for t in bracket_study.get_trials()]
+
+        complete_numbers = [
+            t.number for t in bracket_study.get_trials(states=(optuna.trial.TrialState.COMPLETE,))
+        ]
+        assert all(
+            study.trials[n].state == optuna.trial.TrialState.COMPLETE for n in complete_numbers
+        )
+
+    assert sorted(collected) == list(range(120))
