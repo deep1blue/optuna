@@ -62,6 +62,52 @@ def test_percentile_pruner_with_one_trial() -> None:
     assert not trial.should_prune()
 
 
+def test_percentile_pruner_skips_get_trials_before_eligible_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pruner = optuna.pruners.PercentilePruner(
+        25.0, n_startup_trials=1, n_warmup_steps=2, interval_steps=3
+    )
+    study = optuna.study.create_study(pruner=pruner)
+
+    completed = study.ask()
+    for step in range(6):
+        completed.report(1.0, step)
+    study.tell(completed, 1.0)
+
+    trial = study.ask()
+    get_trials_calls = 0
+    orig_get_trials = study.get_trials
+
+    def counted_get_trials(*args: object, **kwargs: object) -> list[optuna.trial.FrozenTrial]:
+        nonlocal get_trials_calls
+        get_trials_calls += 1
+        return orig_get_trials(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(study, "get_trials", counted_get_trials)
+
+    # No step reported yet: should not query study.get_trials.
+    assert not trial.should_prune()
+    assert get_trials_calls == 0
+
+    # Warmup steps (0 and 1 < n_warmup_steps=2): should not query study.get_trials.
+    trial.report(2.0, 0)
+    assert not trial.should_prune()
+    trial.report(2.0, 1)
+    assert not trial.should_prune()
+    assert get_trials_calls == 0
+
+    # Step 2 is the first step in interval [2, 5): queries study.get_trials.
+    trial.report(2.0, 2)
+    assert trial.should_prune()
+    assert get_trials_calls == 1
+
+    # Step 3 is in the same interval [2, 5) after step 2: should not query study.get_trials.
+    trial.report(2.0, 3)
+    assert not trial.should_prune()
+    assert get_trials_calls == 1
+
+
 @pytest.mark.parametrize(
     "direction_value", [("minimize", [1, 2, 3, 4, 5], 2.1), ("maximize", [1, 2, 3, 4, 5], 3.9)]
 )

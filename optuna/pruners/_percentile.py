@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 import math
 from typing import TYPE_CHECKING
 
@@ -67,13 +66,7 @@ def _is_first_in_interval_step(
     assert nearest_lower_pruning_step >= 0
 
     # `intermediate_steps` may not be sorted so we must go through all elements.
-    second_last_step = functools.reduce(
-        lambda second_last_step, s: s if s > second_last_step and s != step else second_last_step,
-        intermediate_steps,
-        -1,
-    )
-
-    return second_last_step < nearest_lower_pruning_step
+    return all(s < nearest_lower_pruning_step or s == step for s in intermediate_steps)
 
 
 class PercentilePruner(BasePruner):
@@ -180,15 +173,6 @@ class PercentilePruner(BasePruner):
         self._n_min_trials = n_min_trials
 
     def prune(self, study: "optuna.study.Study", trial: "optuna.trial.FrozenTrial") -> bool:
-        completed_trials = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
-        n_trials = len(completed_trials)
-
-        if n_trials == 0:
-            return False
-
-        if n_trials < self._n_startup_trials:
-            return False
-
         step = trial.last_step
         if step is None:
             return False
@@ -200,6 +184,15 @@ class PercentilePruner(BasePruner):
         if not _is_first_in_interval_step(
             step, trial.intermediate_values.keys(), n_warmup_steps, self._interval_steps
         ):
+            return False
+
+        completed_trials = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
+        n_trials = len(completed_trials)
+
+        if n_trials == 0:
+            return False
+
+        if n_trials < self._n_startup_trials:
             return False
 
         direction = study.direction
