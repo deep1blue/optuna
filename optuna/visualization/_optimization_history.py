@@ -61,7 +61,7 @@ def _get_optimization_history_info_list(
 
     info_list: list[_OptimizationHistoryInfo] = []
     for study in studies:
-        trials = study.get_trials()
+        trials = study.get_trials(deepcopy=False)
         label_name = target_name if len(studies) == 1 else f"{target_name} of {study.study_name}"
         values = []
         value_states = []

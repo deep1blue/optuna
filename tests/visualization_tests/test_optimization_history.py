@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from typing import Literal
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -420,3 +421,15 @@ def test_get_optimization_history_plot(
             expected_legends.append(info.best_values_info.label_name)
     legends = [scatter.name for scatter in figure.data if scatter.name is not None]
     assert sorted(legends) == sorted(expected_legends)
+
+
+def test_get_optimization_history_info_list_no_deepcopy() -> None:
+    study = create_study()
+    study.optimize(lambda t: t.suggest_float("x", 0, 1), n_trials=3)
+    with patch.object(study, "get_trials", wraps=study.get_trials) as mock_get_trials:
+        _get_optimization_history_info_list(
+            study, target=None, target_name="Objective Value", error_bar=False
+        )
+        assert mock_get_trials.call_count > 0
+        for call in mock_get_trials.call_args_list:
+            assert call.kwargs.get("deepcopy") is False

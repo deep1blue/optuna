@@ -213,7 +213,7 @@ def _get_importances_plot(infos: tuple[_ImportancesInfo, ...], study: Study) -> 
 
 
 def _get_distribution(param_name: str, study: Study) -> BaseDistribution:
-    for trial in study.trials:
+    for trial in study.get_trials(deepcopy=False):
         if param_name in trial.distributions:
             return trial.distributions[param_name]
     assert False

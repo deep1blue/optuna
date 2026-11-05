@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -179,3 +180,13 @@ def test_plot_timeline_n_recent_trials_invalid(
     study = _create_study(states)
     with pytest.raises(ValueError):
         plot_timeline(study, n_recent_trials=n_recent_trials)
+
+
+def test_get_timeline_info_no_deepcopy() -> None:
+    states = [TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL, TrialState.RUNNING]
+    study = _create_study(states)
+    with patch.object(study, "get_trials", wraps=study.get_trials) as mock_get_trials:
+        _get_timeline_info(study)
+        assert mock_get_trials.call_count > 0
+        for call in mock_get_trials.call_args_list:
+            assert call.kwargs.get("deepcopy") is False

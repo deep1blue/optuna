@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -293,3 +294,12 @@ def test_multi_objective_trial_with_infinite_value_ignored(
     # Obtained info instances should be the same between with inf and without inf,
     # because the last trial whose objective value is an inf is ignored.
     assert info_with_inf == info_without_inf
+
+
+def test_plot_param_importances_no_deepcopy() -> None:
+    study = prepare_study_with_trials()
+    with patch.object(study, "get_trials", wraps=study.get_trials) as mock_get_trials:
+        plotly_plot_param_importances(study)
+        assert mock_get_trials.call_count > 0
+        for call in mock_get_trials.call_args_list:
+            assert call.kwargs.get("deepcopy") is False
