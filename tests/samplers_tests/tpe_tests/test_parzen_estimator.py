@@ -226,6 +226,15 @@ def test_invalid_prior_weight(mus: np.ndarray) -> None:
                 "sigmas": [0.8, 0.8, 1.0 / 3, 0.58, 2.0],
             },
         ],
+        [
+            np.asarray([0.41, -0.4, 0.42, 0.4]),
+            {"magic_clip": False, "endpoints": True},
+            {
+                "weights": [0.2, 0.2, 0.2, 0.2, 0.2],
+                "mus": [0.41, -0.4, 0.42, 0.4, 0.0],
+                "sigmas": [0.01, 0.8, 0.58, 0.8, 2.0],
+            },
+        ],
     ],
 )
 def test_calculate(

@@ -186,7 +186,8 @@ class _ParzenEstimator:
                 sorted_sigmas[0] = sorted_mus_with_endpoints[2] - sorted_mus_with_endpoints[1]
                 sorted_sigmas[-1] = sorted_mus_with_endpoints[-2] - sorted_mus_with_endpoints[-3]
 
-            sigmas = sorted_sigmas[np.argsort(sorted_indices)]
+            sigmas = np.empty_like(sorted_sigmas)
+            sigmas[sorted_indices] = sorted_sigmas
 
             # We adjust the range of the 'sigmas' according to the 'consider_magic_clip' flag.
             maxsigma = high - low
@@ -195,7 +196,7 @@ class _ParzenEstimator:
                 minsigma = (high - low) / min(100.0, (1.0 + n_kernels))
             else:
                 minsigma = EPS
-            return np.asarray(np.clip(sigmas, minsigma, maxsigma))
+            return np.clip(sigmas, minsigma, maxsigma, out=sigmas)
 
         sigmas = compute_sigmas()
         mus = np.append(mus, [0.5 * (low + high)])
