@@ -8,6 +8,7 @@ import numpy as np
 
 from optuna.samplers.nsgaii._constraints_evaluation import _validate_constraints
 from optuna.samplers.nsgaii._elite_population_selection_strategy import _rank_population
+from optuna.study import StudyDirection
 from optuna.study._constrained_optimization import _is_constrained_optimization
 
 
@@ -79,9 +80,11 @@ class NSGAIIIElitePopulationSelectionStrategy:
                     )
 
                 # Normalize objective values after filtering +-inf.
-                objective_matrix = _normalize_objective_values(
-                    _filter_inf(elite_population + population)
+                objective_matrix = _filter_inf(elite_population + population)
+                objective_matrix *= np.array(
+                    [-1.0 if d == StudyDirection.MAXIMIZE else 1.0 for d in study.directions]
                 )
+                objective_matrix = _normalize_objective_values(objective_matrix)
                 (
                     closest_reference_points,
                     distance_reference_points,

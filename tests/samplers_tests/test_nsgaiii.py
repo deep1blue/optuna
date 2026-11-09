@@ -25,6 +25,9 @@ from optuna.samplers._nsgaiii._elite_population_selection_strategy import (
 from optuna.samplers._nsgaiii._elite_population_selection_strategy import (
     _preserve_niche_individuals,
 )
+from optuna.samplers._nsgaiii._elite_population_selection_strategy import (
+    NSGAIIIElitePopulationSelectionStrategy,
+)
 from optuna.samplers._nsgaiii._sampler import NSGAIIISampler
 from optuna.samplers.nsgaii import BaseCrossover
 from optuna.samplers.nsgaii import BLXAlphaCrossover
@@ -613,3 +616,44 @@ def test_niching_unexpected_target_population_size() -> None:
             np.array([0.0]),
             sampler._rng.rng,
         )
+
+
+@pytest.mark.parametrize(
+    "directions",
+    [
+        ["maximize", "maximize", "maximize"],
+        ["minimize", "maximize", "minimize"],
+        ["maximize", "minimize", "maximize"],
+    ],
+)
+def test_selection_strategy_respects_study_directions(directions: list[str]) -> None:
+    rng = np.random.RandomState(0)
+    raw_points = rng.dirichlet([1.0, 1.0, 1.0], size=20)
+
+    min_study = optuna.create_study(directions=["minimize", "minimize", "minimize"])
+    dir_study = optuna.create_study(directions=directions)
+    signs = [1.0 if d == "minimize" else -1.0 for d in directions]
+
+    min_population = []
+    dir_population = []
+    for idx, pt in enumerate(raw_points):
+        t_min = create_trial(values=list(pt))
+        t_min._trial_id = idx
+        min_population.append(t_min)
+
+        t_dir = create_trial(values=[s * float(v) for s, v in zip(signs, pt)])
+        t_dir._trial_id = idx
+        dir_population.append(t_dir)
+
+    strategy_min = NSGAIIIElitePopulationSelectionStrategy(
+        population_size=10,
+        rng=NSGAIIISampler(seed=42)._rng,
+    )
+    strategy_dir = NSGAIIIElitePopulationSelectionStrategy(
+        population_size=10,
+        rng=NSGAIIISampler(seed=42)._rng,
+    )
+
+    selected_min_ids = [t._trial_id for t in strategy_min(min_study, min_population)]
+    selected_dir_ids = [t._trial_id for t in strategy_dir(dir_study, dir_population)]
+    assert selected_dir_ids == selected_min_ids
