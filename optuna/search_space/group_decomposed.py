@@ -20,6 +20,9 @@ class _SearchSpaceGroup:
         return self._search_spaces
 
     def add_distributions(self, distributions: dict[str, BaseDistribution]) -> None:
+        if not distributions:
+            return
+
         dist_keys = set(distributions.keys())
         next_search_spaces = []
 
@@ -42,6 +45,7 @@ class _GroupDecomposedSearchSpace:
         self._search_space = _SearchSpaceGroup()
         self._study_id: int | None = None
         self._include_pruned = include_pruned
+        self._processed_trial_numbers: set[int] = set()
 
     def calculate(self, study: Study, use_cache: bool = False) -> _SearchSpaceGroup:
         if self._study_id is None:
@@ -63,6 +67,9 @@ class _GroupDecomposedSearchSpace:
         for trial in study._get_trials(
             deepcopy=False, states=states_of_interest, use_cache=use_cache
         ):
+            if trial.number in self._processed_trial_numbers:
+                continue
             self._search_space.add_distributions(trial.distributions)
+            self._processed_trial_numbers.add(trial.number)
 
         return copy.deepcopy(self._search_space)
