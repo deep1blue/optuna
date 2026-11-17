@@ -1084,6 +1084,27 @@ def test_optimize_infinite_budget_progbar() -> None:
         )
 
 
+def test_progress_bar_n_trials_zero_and_repeated_timeout_clipping() -> None:
+    from optuna.progress_bar import _ProgressBar
+
+    bar_zero = _ProgressBar(True, n_trials=0, timeout=None)
+    try:
+        assert bar_zero._is_valid is True
+        assert bar_zero._progress_bar.total == 0
+    finally:
+        bar_zero.close()
+
+    study = create_study()
+    bar_timeout = _ProgressBar(True, n_trials=None, timeout=1.0)
+    try:
+        bar_timeout.update(1.2, study)
+        assert bar_timeout._progress_bar.n == pytest.approx(1.0)
+        bar_timeout.update(1.5, study)
+        assert bar_timeout._progress_bar.n == pytest.approx(1.0)
+    finally:
+        bar_timeout.close()
+
+
 @pytest.mark.parametrize("storage_mode", STORAGE_MODES)
 def test_get_trials(storage_mode: str) -> None:
     if storage_mode in ("grpc_rdb", "grpc_journal_file"):

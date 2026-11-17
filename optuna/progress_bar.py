@@ -50,7 +50,7 @@ class _ProgressBar:
         if is_valid and n_trials is None and timeout is None:
             optuna_warn("Progress bar won't be displayed because n_trials and timeout are None.")
 
-        self._is_valid = is_valid and (n_trials or timeout) is not None
+        self._is_valid = is_valid and (n_trials is not None or timeout is not None)
         self._n_trials = n_trials
         self._timeout = timeout
         self._last_elapsed_seconds = 0.0
@@ -104,13 +104,10 @@ class _ProgressBar:
                     )
 
             elif self._timeout is not None:
-                time_diff = elapsed_seconds - self._last_elapsed_seconds
-                if elapsed_seconds > self._timeout:
-                    # Clip elapsed time to avoid tqdm warnings.
-                    time_diff -= elapsed_seconds - self._timeout
-
+                clipped_elapsed = min(elapsed_seconds, max(self._timeout, 0.0))
+                time_diff = max(0.0, clipped_elapsed - self._last_elapsed_seconds)
                 self._progress_bar.update(time_diff)
-                self._last_elapsed_seconds = elapsed_seconds
+                self._last_elapsed_seconds = clipped_elapsed
 
             else:
                 assert False
