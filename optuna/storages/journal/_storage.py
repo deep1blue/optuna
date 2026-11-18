@@ -140,6 +140,10 @@ class JournalStorage(BaseStorage):
         r._worker_id_prefix = self._worker_id_prefix
         r._worker_id_to_owned_trial_id = {}
         r._last_created_trial_id_by_this_process = -1
+        if not hasattr(r, "_study_name_to_id"):
+            r._study_name_to_id = {
+                s.study_name: study_id for study_id, s in r._studies.items()
+            }
         self._replay_result = r
 
     def _write_log(self, op_code: int, extra_fields: dict[str, Any]) -> None:
@@ -162,23 +166,18 @@ class JournalStorage(BaseStorage):
             )
             self._sync_with_backend()
 
-            for frozen_study in self._replay_result.get_all_studies():
-                if frozen_study.study_name != study_name:
-                    continue
+            study_id = self._replay_result.get_study_id_from_name(study_name)
+            _logger.info(f"A new study created in Journal with name: {study_name}")
 
-                _logger.info(f"A new study created in Journal with name: {study_name}")
-                study_id = frozen_study._study_id
+            # Dump snapshot here.
+            if (
+                isinstance(self._backend, BaseJournalSnapshot)
+                and study_id != 0
+                and study_id % SNAPSHOT_INTERVAL == 0
+            ):
+                self._backend.save_snapshot(pickle.dumps(self._replay_result))
 
-                # Dump snapshot here.
-                if (
-                    isinstance(self._backend, BaseJournalSnapshot)
-                    and study_id != 0
-                    and study_id % SNAPSHOT_INTERVAL == 0
-                ):
-                    self._backend.save_snapshot(pickle.dumps(self._replay_result))
-
-                return study_id
-            assert False, "Should not reach."
+            return study_id
 
     def delete_study(self, study_id: int) -> None:
         with self._thread_lock:
@@ -200,10 +199,7 @@ class JournalStorage(BaseStorage):
     def get_study_id_from_name(self, study_name: str) -> int:
         with self._thread_lock:
             self._sync_with_backend()
-            for study in self._replay_result.get_all_studies():
-                if study.study_name == study_name:
-                    return study._study_id
-            raise KeyError(NOT_FOUND_MSG)
+            return self._replay_result.get_study_id_from_name(study_name)
 
     def get_study_name_from_id(self, study_id: int) -> str:
         with self._thread_lock:
@@ -410,6 +406,7 @@ class JournalStorageReplayResult:
         self.log_number_read = 0
         self._worker_id_prefix = worker_id_prefix
         self._studies: dict[int, FrozenStudy] = {}
+        self._study_name_to_id: dict[str, int] = {}
         self._trials: dict[int, FrozenTrial] = {}
 
         self._study_id_to_trial_ids: dict[int, list[int]] = {}
@@ -451,6 +448,11 @@ class JournalStorageReplayResult:
         if study_id not in self._studies:
             raise KeyError(NOT_FOUND_MSG)
         return self._studies[study_id]
+
+    def get_study_id_from_name(self, study_name: str) -> int:
+        if study_name not in self._study_name_to_id:
+            raise KeyError(NOT_FOUND_MSG)
+        return self._study_name_to_id[study_name]
 
     def get_all_studies(self) -> list[FrozenStudy]:
         return list(self._studies.values())
@@ -495,7 +497,7 @@ class JournalStorageReplayResult:
         study_name = log["study_name"]
         directions = [StudyDirection(d) for d in log["directions"]]
 
-        if study_name in [s.study_name for s in self._studies.values()]:
+        if study_name in self._study_name_to_id:
             if self._is_issued_by_this_worker(log):
                 raise DuplicatedStudyError
             return
@@ -511,6 +513,7 @@ class JournalStorageReplayResult:
             study_id=study_id,
             directions=directions,
         )
+        self._study_name_to_id[study_name] = study_id
         self._study_id_to_trial_ids[study_id] = []
 
     def _apply_delete_study(self, log: dict[str, Any]) -> None:
@@ -519,6 +522,7 @@ class JournalStorageReplayResult:
         if self._study_exists(study_id, log):
             fs = self._studies.pop(study_id)
             assert fs._study_id == study_id
+            self._study_name_to_id.pop(fs.study_name, None)
 
     def _apply_set_study_user_attr(self, log: dict[str, Any]) -> None:
         study_id = log["study_id"]

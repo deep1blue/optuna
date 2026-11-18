@@ -336,3 +336,29 @@ def test_ignore_discard_trial_operation() -> None:
 
         trials = storage.get_all_trials(study._study_id)
         assert trial2.number in [t.number for t in trials]
+
+
+def test_study_name_index_create_delete_and_legacy_snapshot() -> None:
+    with NamedTemporaryFilePool() as file:
+        storage = optuna.storages.JournalStorage(journal.JournalFileBackend(file.name))
+        directions = [optuna.study.StudyDirection.MINIMIZE]
+        sid1 = storage.create_new_study(directions, study_name="study-a")
+        assert storage.get_study_id_from_name("study-a") == sid1
+
+        with pytest.raises(optuna.exceptions.DuplicatedStudyError):
+            storage.create_new_study(directions, study_name="study-a")
+
+        storage.delete_study(sid1)
+        with pytest.raises(KeyError, match="Record does not exist"):
+            storage.get_study_id_from_name("study-a")
+
+        sid2 = storage.create_new_study(directions, study_name="study-a")
+        assert sid2 != sid1
+        assert storage.get_study_id_from_name("study-a") == sid2
+
+        # Verify legacy snapshot without `_study_name_to_id` attribute restores cleanly.
+        legacy_replay = pickle.loads(pickle.dumps(storage._replay_result))
+        delattr(legacy_replay, "_study_name_to_id")
+        storage.restore_replay_result(pickle.dumps(legacy_replay))
+        assert storage.get_study_id_from_name("study-a") == sid2
+
