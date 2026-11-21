@@ -331,8 +331,8 @@ class GPSampler(BaseSampler):
         # NOTE(nabenabe): Flip the sign of constraints since they are always to be minimized.
         standardized_constraint_vals, means, stds = _standardize_values(-constraint_vals)
         if (
-            self._gprs_cache_list is not None
-            and len(self._gprs_cache_list[0].inverse_squared_lengthscales)
+            self._constraints_gprs_cache_list is not None
+            and len(self._constraints_gprs_cache_list[0].inverse_squared_lengthscales)
             != internal_search_space.dim
         ):
             # Clear cache if the search space changes.

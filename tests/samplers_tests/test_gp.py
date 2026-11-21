@@ -211,6 +211,53 @@ def test_named_constraint_order_does_not_change_suggestion(
     assert suggestions[0] == pytest.approx(suggestions[1], abs=1e-8)
 
 
+def test_constraints_gpr_cache_cleared_when_search_space_dim_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sampler = GPSampler(seed=42, n_startup_trials=2)
+    study = optuna.create_study(sampler=sampler)
+    dist = optuna.distributions.FloatDistribution(0.0, 1.0)
+    for x, y in [(0.1, 0.2), (0.4, 0.5), (0.8, 0.9)]:
+        study.add_trial(
+            optuna.trial.create_trial(
+                values=[x + y],
+                params={"x": x, "y": y},
+                distributions={"x": dist, "y": dist},
+                constraints={"c0": x - 0.5},
+            )
+        )
+
+    observed_cache_dims: list[tuple[int, int | None]] = []
+    orig_fit = optuna_gp.fit_kernel_params
+
+    def spy_fit_kernel_params(*args: object, **kwargs: object) -> optuna_gp.GPRegressor:
+        X = kwargs["X"]
+        gpr_cache = kwargs.get("gpr_cache")
+        assert isinstance(X, np.ndarray)
+        cache_dim = (
+            len(gpr_cache.inverse_squared_lengthscales)
+            if isinstance(gpr_cache, optuna_gp.GPRegressor)
+            else None
+        )
+        observed_cache_dims.append((X.shape[1], cache_dim))
+        return orig_fit(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(optuna_gp, "fit_kernel_params", spy_fit_kernel_params)
+
+    # First relative sample in 2D -> populates 2D objective and constraint GP caches.
+    t1 = study.ask()._cached_frozen_trial
+    sampler.sample_relative(study, t1, {"x": dist, "y": dist})
+    # Shrink relative search space to 1D -> both objective and constraint GP caches must be reset.
+    t2 = study.ask()._cached_frozen_trial
+    sampler.sample_relative(study, t2, {"x": dist})
+    # Expand relative search space back to 2D -> must reset 1D constraint cache instead of raising IndexError.
+    t3 = study.ask()._cached_frozen_trial
+    sampler.sample_relative(study, t3, {"x": dist, "y": dist})
+
+    for x_dim, cache_dim in observed_cache_dims:
+        assert cache_dim is None or cache_dim == x_dim
+
+
 def test_behavior_without_greenlet(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "greenlet", None)
     import optuna._gp.batched_lbfgsb as optimization_module
