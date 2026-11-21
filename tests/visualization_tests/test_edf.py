@@ -220,3 +220,13 @@ def test_inconsistent_number_of_trial_values() -> None:
     for line, study in zip(lines, studies):
         assert line.study_name == study.study_name
         _validate_edf_values(line.y_values)
+
+
+def test_get_edf_info_exact_cumulative_proportions() -> None:
+    study = create_study(study_name="exact")
+    raw_values = [3.0, 1.0, 2.0, 1.0, 4.0]
+    study.add_trials([create_trial(value=v) for v in raw_values])
+    edf_info = _get_edf_info(study)
+    values = np.array(raw_values)
+    expected = np.sum(values[:, np.newaxis] <= edf_info.x_values, axis=0) / values.size
+    np.testing.assert_allclose(edf_info.lines[0].y_values, expected, rtol=0, atol=0)
